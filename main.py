@@ -5,7 +5,7 @@ __title__ = "Resume Reviewer"
 __author__ = "Pravallika Molleti"
 
 from datetime import datetime
-from dotenv import load_dotenv
+# from dotenv import load_dotenv
 import os
 import openai
 import streamlit as st
@@ -23,9 +23,6 @@ def extract_text_from_pdf(uploaded_file):
     return text
 
 # Authenticate with OpenAI API using your API key
-load_dotenv()
-
-# Access the environment variable
 openai.api_key = os.getenv('OPEN_AI_KEY')
 
 # Function to generate resume review
