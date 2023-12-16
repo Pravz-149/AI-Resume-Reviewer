@@ -4,26 +4,37 @@
 __title__ = "Resume Reviewer"
 __author__ = "Pravallika Molleti"
 
+import streamlit.components.v1 as components
+import pdfkit
 from datetime import datetime
 import os
 import openai
 import streamlit as st
-
 import io
 from pdfminer.high_level import extract_text
+from pdfminer.high_level import extract_text_to_fp
 from pdfminer.layout import LAParams
+import base64
 
-# Function to extract text from a PDF file
-def extract_text_from_pdf(uploaded_file):
-    file_contents = uploaded_file.read()
-    pdf_bytesio = io.BytesIO(file_contents)
-    laparams = LAParams()
-    text = extract_text(pdf_bytesio, laparams=laparams)
-    return text
 
 # Authenticate with OpenAI API using your API key
 # openai.api_key = os.getenv('OPEN_AI_KEY')
-openai.api_key = "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"
+openai.api_key = "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"
+
+config = pdfkit.configuration(wkhtmltopdf=r"C:\Users\Pravallika Molleti\AI RESUME REVIEWER\AI-Resume-Reviewer\wkhtmltopdf.exe")
+
+
+#Function to extract HTML from PDF
+def extract_html_from_pdf(uploaded_file):
+    file_contents = uploaded_file.read()
+    pdf_bytesio = io.BytesIO(file_contents)
+    html_bytesio = io.BytesIO()
+    laparams = LAParams()
+    extract_text_to_fp(pdf_bytesio, html_bytesio, laparams=laparams)
+    html_text = html_bytesio.getvalue().decode("utf-8")
+    return html_text
+
+
 
 # Function to generate resume review
 def generate_resume_review(resume_text, length=300):
@@ -91,15 +102,17 @@ The above is just an example of the format. You can use your recommendations and
     return resume_review
 
 # Function to generate an improvised resume taking the recommendations
-def gen_new_resume(resume_text, recommendations, input_details):
+def gen_new_resume(resume_text, recommendations):
     prompt = f"""
-             The below is my:
+             The below is my resume:
               '{resume_text}',
-             The below are the suggestions you have to follow on improving the above resume by using the supporting info from '{input_details}' to the resume .
-             Make sure sections are arranged according to hierarchy, adding summary at the top followed by Work Experience, Education, Projects, Skills.
+             The below are the suggestions you have to follow on improving the above resume.
               '{recommendations}'
-             Finally, generate the updated resume in the same format as the given resume in points by adding required points and modifying the context and following the suggestions and recommendations.
-             Also, make sure the important context or works in the original resume are not excluded """
+             Modify the context of resume_text by following the above recommendations and below suggestions.
+             Make sure sections are arranged according to hierarchy, adding name, details, related profile contacts, links, summary at the top followed by Work Experience, Education (based on the preference), Projects, Skills.
+             Also, make sure the important context or works in the original resume are not excluded and make them detail as per recommendations.
+             and finally Generate the HTML text of the updated resume (HTML of the resume is only i want).
+              """
 
     # Call OpenAI API for chat completion
     response = openai.ChatCompletion.create(model="gpt-3.5-turbo", messages=[{"role": "user", "content": prompt}])
@@ -107,6 +120,26 @@ def gen_new_resume(resume_text, recommendations, input_details):
     # Extract and return the generated text
     new_resume = response.choices[0].message['content']
     return new_resume
+
+# Function to generate PDF from HTML content
+def generate_pdf(html_content, filename="test2_generated_resume.pdf"):
+    # Save the HTML content to a temporary file
+    temp_html_path = "temp_resume.html"
+    with open(temp_html_path, "w", encoding="utf-8") as file:
+        file.write(html_content)
+
+    # Clean up temporary HTML file
+    os.remove(temp_html_path)
+
+    return pdfkit.from_string(html_content, filename)
+
+# Utility function to create a download link for binary files
+def get_binary_file_downloader_html(bin_file, label='Download PDF'):
+    with open(bin_file, 'rb') as f:
+        data = f.read()
+    bin_str = base64.b64encode(data).decode()
+    href = f'<a href="data:application/octet-stream;base64,{bin_str}" download="{bin_file}" target="_blank">{label}</a>'
+    return href
 
 # Define Streamlit app
 def app():
@@ -129,11 +162,8 @@ def app():
     # Check if a file has been uploaded
     if uploaded_file is not None:
         # Extract text from the PDF
-        resume_text = extract_text_from_pdf(uploaded_file)
-
-        # Display extracted text
-        st.subheader("Extracted Text from Resume:")
-        st.text_area("", value=resume_text, height=300, max_chars=None)
+        resume_text = extract_html_from_pdf(uploaded_file)
+        st.write(resume_text)
 
     # Input fields for generating the resume review
     st.subheader("Generate Resume Review:")
@@ -168,7 +198,11 @@ def app():
     st.session_state.generated_text = generated_text
 
     # Asking for the details that can be added to the resume
-    input_details = st.text_area("Enter the required details as per recommendations")
+    # input_details = st.text_area("Enter the required details as per recommendations")
+
+    # Initialize result outside the if block
+    result = ""
+
 
     if st.button("Process Resume"):
         # Clear existing elements
@@ -177,12 +211,38 @@ def app():
         # Retrieve the stored generated_text
         generated_text = st.session_state.generated_text
 
-        # Generate the new resume
-        result = gen_new_resume(resume_text, generated_text, input_details)
+        with st.spinner("Generating updated resume, this may take a while..."):
+            try:
+               # Generate the new resume
+               result = gen_new_resume(resume_text, generated_text)
 
-        # Display the generated resume
-        st.subheader("Generated New Resume:")
-        st.write(result)
+               # Display the generated resume in HTML format
+               st.subheader("Generated New Resume (HTML):")
+               # st.markdown(result, unsafe_allow_html=True)
+
+               # Before converting to PDF
+               st.write("HTML Content:", result)
+
+            except Exception as e:
+                    print(e)
+                    st.error("An error occurred while generating the updated resume. Please try again later.")
+                    return
+
+        generate_pdf(result)
+
+    # # Store result in session state
+    # st.session_state.result = result
+
+    # # Create a download button for PDF
+    # if st.button("Download as PDF"):
+    #     result = st.session_state.result
+    #     generate_pdf(result)
+        
+        # final_pdf = generate_pdf(result)
+        # st.write(final_pdf)
+
+        # # Display a link to download the PDF
+        # st.markdown(get_binary_file_downloader_html(final_pdf,'Download PDF'), unsafe_allow_html=True)
 
     st.markdown('---')
     st.markdown('Created by [Pravallika Molleti](https://www.linkedin.com/in/pravz149)')
